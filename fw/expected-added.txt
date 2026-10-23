@@ -1,0 +1,22 @@
+# <path> <mode> [link-target]; paths prefixed with the partition tree name
+rootfs/root/.ssh 700
+rootfs/root/.ssh/authorized_keys 600
+customer/gk 755
+customer/gk/customerStart 755
+customer/gk/customer.sh 755
+customer/gk/init.d 755
+customer/gk/init.d/R96dropbear 755
+customer/gk/bin 755
+customer/gk/bin/dropbearmulti 755
+customer/gk/bin/dropbear 777 dropbearmulti
+customer/gk/bin/dropbearkey 777 dropbearmulti
+customer/gk/bin/dbclient 777 dropbearmulti
+customer/gk/bin/scp 777 dropbearmulti
+customer/gk/dropbear 700
+customer/gk/dropbear/dropbear_rsa_host_key 600
+customer/gk/dropbear/dropbear_ecdsa_host_key 600
+customer/gk/dropbear/dropbear_ed25519_host_key 600
+customer/gk/init.d/R97gksdcp 755
+customer/gk/bin/gksdcp 755
+customer/gk/lib 755
+customer/gk/lib/libgkhook.so 755

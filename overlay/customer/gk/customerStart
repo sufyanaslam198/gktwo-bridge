@@ -1,0 +1,4 @@
+#!/bin/sh
+# Called from rcS. Must return immediately; real work happens 35 s later, detached.
+setsid sh -c 'sleep 35; /customer/gk/customer.sh' </dev/null >/dev/null 2>&1 &
+exit 0

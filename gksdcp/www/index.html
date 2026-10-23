@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GKtwo</title>
+<style>
+body{font:15px system-ui,sans-serif;margin:0 auto;padding:12px;max-width:760px;color:#222;background:#f6f6f6}
+h1{font-size:20px;margin:0 0 8px}h2{font-size:16px;margin:16px 0 6px}
+section{background:#fff;border:1px solid #ddd;border-radius:6px;padding:10px;margin-bottom:12px}
+button{font:inherit;padding:5px 10px;margin:2px}button:disabled{opacity:.45}button.on{font-weight:700}
+progress{width:100%;height:16px}td,th{padding:4px 6px;text-align:left;border-bottom:1px solid #eee}
+table{width:100%;border-collapse:collapse}.w{overflow-x:auto}
+#message{margin:8px 0;min-height:1.2em;font-weight:600}
+#message.err{color:#b00020}#status-message{color:#b00020;font-weight:600;min-height:1.2em}#banner{display:none;background:#fde8e8;color:#b00020;padding:6px;border-radius:4px;margin-bottom:8px}
+dl{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:6px 0}dt{color:#666}dd{margin:0}
+</style></head><body>
+<h1>GKtwo</h1>
+<div id="banner">Printer app not reachable</div>
+<section>
+<dl>
+<dt>State</dt><dd id="status-state">—</dd>
+<dt>File</dt><dd id="status-file">—</dd>
+<dt>Layer</dt><dd id="status-layer">—</dd>
+<dt>Elapsed</dt><dd id="status-elapsed">—</dd>
+<dt>Remaining</dt><dd id="status-remaining">—</dd>
+</dl>
+<div id="status-message"></div>
+<progress id="status-progress" max="100" value="0"></progress>
+<div>
+<button id="btn-pause" disabled>Pause</button>
+<button id="btn-resume" disabled>Resume</button>
+<button id="btn-stop" disabled>Stop</button>
+</div>
+</section>
+<div id="message"></div>
+<section>
+<h2>Move Z</h2>
+<div><strong id="z-pos">Z control unavailable</strong> <span id="z-hint"></span></div>
+<div>
+<button id="btn-z-up1" disabled>Up 1</button>
+<button id="btn-z-up10" disabled>Up 10</button>
+<button id="btn-z-up100" disabled>Up 100</button>
+<button id="btn-z-top" disabled>TOP</button>
+</div>
+<div>
+<button id="btn-z-dn1" disabled>Down 1</button>
+<button id="btn-z-dn10" disabled>Down 10</button>
+<button id="btn-z-dn100" disabled>Down 100</button>
+<button id="btn-z-home" disabled>Home</button>
+<button id="btn-z-stop" disabled>Stop</button>
+</div>
+</section>
+<section>
+<h2>Upload <small id="free-space"></small></h2>
+<input type="file" id="upload-input" accept=".ctb">
+<button id="btn-upload-cancel" disabled>Cancel</button>
+<div><progress id="upload-progress" max="100" value="0"></progress> <span id="upload-text"></span></div>
+</section>
+<section>
+<h2>Files</h2>
+<div><button id="tab-local" class="on">Internal</button><button id="tab-usb" style="display:none">USB</button> <span id="path"></span></div>
+<div class="w"><table><thead><tr><th>Name</th><th></th></tr></thead>
+<tbody id="file-list"></tbody></table></div>
+</section>
+<script>
+var $=function(i){return document.getElementById(i)};
+var H=location.hostname,H=H.indexOf(":")>=0?"["+H+"]":H;
+var ws=null,fails=0,mid="",wait={},pend=null,watch=false;   // watch: our start was accepted and has not printed yet
+var cur=0,sub=0,state="",z=null,hook=false,acting=false,free=null,usb=0;
+var tab=0,root=["/local/","/usb/"],path=root.slice(),files=[],up=null;
+var LB=["Idle","Homing","Dropping","Printing","Lifting","Pausing","Paused","Stopping","Stopped","Complete","Starting"];
+function msg(t,err){var m=$("message");m.textContent=t||"";m.className=err?"err":""}
+function hms(s){if(!(s>=0))return"—";s=Math.round(s);var m=Math.floor(s/60%60);
+return Math.floor(s/3600)+":"+(m<10?"0":"")+m+":"+(s%60<10?"0":"")+s%60}
+function busy(){return state=="printing"||state=="paused"}
+function idleish(){return state=="idle"||state=="complete"||state=="error"}
+function cap(t){return t.charAt(0).toUpperCase()+t.slice(1)}
+function base(n){return n.replace(/\/$/,"").split("/").pop()}
+function same(n){return files.filter(function(f){return f.type==1&&base(f.name).toLowerCase()==n.toLowerCase()&&tab==0&&path[0]==root[0]})[0]}
+function uuid(){var c=window.crypto;if(c&&c.randomUUID)return c.randomUUID();
+return"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,function(k){var r=Math.random()*16|0;return(k=="x"?r:r&3|8).toString(16)})}
+// ---- transport ----
+function send(cmd,data,label,cb){
+if(!ws||ws.readyState!=1)return false;
+var id=uuid();
+wait[id]={cmd:cmd,label:label,cb:cb};
+ws.send(JSON.stringify({Id:uuid(),Data:{Cmd:cmd,Data:data||{},RequestID:id,MainboardID:mid,TimeStamp:Date.now(),From:1},Topic:"sdcp/request/"+mid}));
+return true}
+function connect(){
+ws=new WebSocket("ws://"+H+":3030/websocket");
+var me=ws;
+ws.onopen=function(){fails=0;wait={};send(1);send(0);load();render()};
+ws.onmessage=function(e){var j;try{j=JSON.parse(e.data)}catch(_){return}onframe(j)};
+ws.onclose=function(){
+if(ws!=me)return;
+ws=null;fails++;hook=false;state="";z=null;acting=false;pend=null;watch=false;
+["state","file","layer","elapsed","remaining"].forEach(function(k){$("status-"+k).textContent="—"});
+$("status-message").textContent="";$("status-progress").value=0;
+render();setTimeout(connect,3000)};
+ws.onerror=function(){}}
+function onframe(j){
+var t=String(j.Topic||"").split("/")[1],d=j.Data||{};
+if(j.MainboardID)mid=j.MainboardID;
+if(t=="status"&&j.Status)onstatus(j.Status);
+else if(t=="attributes"&&j.Attributes)onattrs(j.Attributes);
+else if(t=="response")onresp(d);
+else if(t=="notice"){var m=d.Data&&d.Data.Type==100&&d.Data.Message;if((pend||watch)&&m){if(pend)clearTimeout(pend.t);pend=null;watch=false;msg(m,1)}}
+else if(t=="error")msg("Printer error "+(d.Data&&d.Data.ErrorCode),1)}
+function onresp(d){
+var w=wait[d.RequestID],a=d.Data||{};
+if(!w)return;
+delete wait[d.RequestID];
+var l=w.label,ok=a.Ack==0;
+if(l){if(ok)send(0);else acting=false}      // after success the next status push re-enables the buttons
+if(w.cb)w.cb(a.Ack,a);
+else if(l){if(ok){msg(cap(l)+" sent");watch=/^start /.test(l)}
+else{if(pend)clearTimeout(pend.t);pend={t:setTimeout(function(){pend=null;msg(cap(l)+" refused",1)},1000)}}}
+render()}
+function act(cmd,data,label,cb){watch=false;if(send(cmd,data,label,cb)){acting=true;render()}}
+// ---- status ----
+function onstatus(s){
+var p=s.PrintInfo||{},b=s.GKBridge||{};
+acting=false;cur=(s.CurrentStatus||[0])[0];sub=p.Status;var was=state;
+state=cur==1?(sub==10?"starting":sub==6?"paused":"printing"):cur==2?"uploading":cur==0?(sub==9?"complete":sub==8?"error":"idle"):"busy";
+if(busy()||was=="starting"&&state!="starting")watch=false;   // a failed start sends its notice before this status
+z=b.Z&&typeof b.Z=="object"?b.Z:null;
+var m=typeof b.Message=="string"?b.Message:"";
+hook=b.HookOk===true;
+var tt=p.TotalTicks,ct=p.CurrentTicks,tl=p.TotalLayer;
+$("status-state").textContent=cur==2?"Receiving file":LB[sub]||"—";
+$("status-file").textContent=p.Filename||"—";
+$("status-layer").textContent=tl>0?p.CurrentLayer+" / "+tl:"—";
+$("status-message").textContent=m;
+$("status-elapsed").textContent=cur==1&&ct>=0?hms(ct/1000):"—";
+$("status-remaining").textContent=cur==1&&tt>0?hms(Math.max(0,tt-ct)/1000):"—";
+$("status-progress").value=tl>0?p.CurrentLayer*100/tl:0;
+render()}
+function onattrs(a){
+var u=a.UsbDiskStatus==1?1:0;
+free=typeof a.RemainingMemory=="number"?a.RemainingMemory:null;
+$("free-space").textContent=free==null?"":"— "+(free/1073741824).toFixed(1)+" GB free";
+if(u!=usb){usb=u;if(!u&&tab==1){tab=0;path[1]=root[1]}load()}
+render()}
+function zrender(){
+var ok=hook&&!acting&&z&&idleish()&&!z.Moving,h="";
+$("z-pos").textContent=!hook||!z?"Z control unavailable":z.Moving?"Z: moving…":z.Homed&&z.Pos!=null?"Z: "+Number(z.Pos).toFixed(2)+" mm":"Z: not homed";
+if(hook&&z){if(!idleish())h="Printer busy";else if(!z.Homed&&!z.Moving)h="Home Z first"}
+$("z-hint").textContent=h;
+$("btn-z-home").disabled=!ok;
+["up1","up10","up100","dn1","dn10","dn100","top"].forEach(function(k){$("btn-z-"+k).disabled=!(ok&&z.Homed)});
+$("btn-z-stop").disabled=!(hook&&z&&z.Moving&&idleish())}
+function render(){
+var b=busy(),on=ws&&ws.readyState==1;zrender();
+$("btn-pause").disabled=!(hook&&!acting&&state=="printing"&&sub==3);
+$("btn-resume").disabled=!(hook&&!acting&&state=="paused");
+$("btn-stop").disabled=!(hook&&!acting&&(b||state=="starting"));
+$("upload-input").disabled=b||!!up||!on;
+$("btn-upload-cancel").disabled=!up;
+$("banner").style.display=fails>=2?"block":"none";
+$("tab-usb").style.display=usb?"":"none";
+$("tab-local").className=tab?"":"on";$("tab-usb").className=tab?"on":"";
+$("path").textContent=path[tab]==root[tab]?"":path[tab];
+var tb=$("file-list");tb.textContent="";
+function row(n,f){
+var tr=document.createElement("tr"),a=document.createElement("td"),c=document.createElement("td");
+a.textContent=n;tr.appendChild(a);tr.appendChild(c);tb.appendChild(tr);
+return function(t,fn,dis,tip){var x=document.createElement("button");x.textContent=t;x.disabled=dis;if(tip)x.title=tip;x.onclick=fn;c.appendChild(x)}}
+if(path[tab]!=root[tab])row("..")("Open",function(){open(path[tab].replace(/[^\/]+\/$/,""))});
+files.forEach(function(f){
+var n=base(f.name),dir=f.type==0,ok=hook&&!acting&&idleish(),btn=row(dir?n+"/":n);
+if(dir)btn("Open",function(){open(f.name.replace(/\/?$/,"/"))});
+else{var pr=/\.ctb$/i.test(n);btn("Print",function(){act(128,{Filename:f.name,StartLayer:0},"start "+n)},!(ok&&pr),pr?"":"Only .ctb files can be printed")}
+btn("Delete",function(){if(confirm("Delete "+n+"?"))act(259,dir?{FolderList:[f.name]}:{FileList:[f.name]},"delete "+n,function(k,a){
+if(k!=0||(a.ErrData&&a.ErrData.length))msg("Could not delete "+n,1);else msg("Deleted "+n);load()})},!ok)})}
+function open(p){path[tab]=p;load()}
+function load(){
+if(!ws||ws.readyState!=1)return;
+var t=tab;
+send(258,{Url:path[t]},"",function(k,a){
+if(t!=tab)return;
+files=k==0&&a.FileList?a.FileList:[];render()})}
+$("tab-local").onclick=function(){tab=0;files=[];load();render()};
+$("tab-usb").onclick=function(){tab=1;files=[];load();render()};
+// ---- controls ----
+function zmove(mm){return function(){act(4097,{Mm:mm},"Z "+(mm>0?"up ":"down ")+Math.abs(mm)+" mm")}}
+[["up1",1],["up10",10],["up100",100],["dn1",-1],["dn10",-10],["dn100",-100]].forEach(function(a){$("btn-z-"+a[0]).onclick=zmove(a[1])});
+$("btn-z-top").onclick=function(){if(confirm("Move the plate to the top? The vat must be empty and clear."))act(4098,{},"Z to top")};
+$("btn-z-home").onclick=function(){if(confirm("Home Z? The plate moves down to the end stop."))act(4096,{},"Z home")};
+$("btn-z-stop").onclick=function(){act(4099,{},"Z stop")};
+$("btn-pause").onclick=function(){act(129,{},"pause")};
+$("btn-resume").onclick=function(){act(131,{},"resume")};
+$("btn-stop").onclick=function(){if(confirm("Stop the print?"))act(130,{},"stop")};
+// ---- upload: 1 MiB chunks, each one a multipart POST ----
+var CH=1048576,UP=location.protocol+"//"+H+":3030/uploadFile/upload";
+function upfail(m){up=null;$("upload-input").value="";$("upload-text").textContent="";$("upload-progress").value=0;msg(m,1);render();load()}
+function reason(st,t){
+var j={};try{j=JSON.parse(t)}catch(_){}
+var ms=j.messages||[],s="",c=null;
+ms.forEach(function(e){if(typeof e.message=="string"&&!s)s=e.message;else if(typeof e.message=="number"&&c==null)c=e.message});
+return s||(c!=null?"upload failed (code "+c+")":"upload failed (HTTP "+st+")")}
+function chunk(){
+var u=up,off=u.off,end=Math.min(off+CH,u.f.size),fd=new FormData();
+fd.append("S-File-MD5","");fd.append("Check","0");fd.append("Offset",String(off));fd.append("Uuid",u.id);fd.append("TotalSize",String(u.f.size));
+fd.append("File",u.f.slice(off,end),u.f.name);
+var ac=window.AbortController?new AbortController():null;u.ac=ac;
+fetch(UP,{method:"POST",body:fd,signal:ac&&ac.signal}).then(function(r){return r.text().then(function(t){
+if(up!=u)return;
+var ok=r.ok;try{if(JSON.parse(t).success===false)ok=false}catch(_){}
+if(!ok){send(255,{Uuid:u.id,FileName:u.f.name});upfail(reason(r.status,t));return}
+u.off=end;
+$("upload-progress").value=end*100/u.f.size;
+$("upload-text").textContent=Math.floor(end*100/u.f.size)+"% ("+(end/1048576).toFixed(1)+" / "+(u.f.size/1048576).toFixed(1)+" MB)";
+if(end>=u.f.size){up=null;$("upload-input").value="";$("upload-text").textContent="";$("upload-progress").value=0;msg("Uploaded "+u.f.name);render();load()}
+else chunk()})}).catch(function(){if(up==u){send(255,{Uuid:u.id,FileName:u.f.name});upfail("Upload failed: network error")}})}
+$("btn-upload-cancel").onclick=function(){
+var u=up;if(!u)return;
+up=null;if(u.ac)u.ac.abort();
+send(255,{Uuid:u.id,FileName:u.f.name});
+$("upload-input").value="";$("upload-text").textContent="";$("upload-progress").value=0;msg("Upload cancelled",1);render();load()};
+function checkName(n){
+if(!/^[A-Za-z0-9 ._()+-]+$/.test(n)||n.length>128||n.charAt(0)=="."||!/\.ctb$/i.test(n))
+return"Invalid file name. Use letters, digits, space . _ ( ) + - only (max 128 chars, not starting with '.'), ending in .ctb. Rename the file and try again.";
+return""}
+$("upload-input").onchange=function(){
+var inp=this,f=inp.files[0];if(!f)return;
+var e=checkName(f.name);if(e){msg(e,1);inp.value="";return}
+if(!f.size){msg("file is empty",1);inp.value="";return}
+var mb=(f.size/1048576).toFixed(1),old=same(f.name);
+if(free!=null&&f.size>free-16777216){msg("Not enough free space: "+f.name+" is "+mb+" MB but only "+Math.max(0,(free-16777216)/1048576).toFixed(0)+" MB can be used (16 MB stay in reserve). Delete a file first.",1);inp.value="";return}
+if(old&&!confirm("Replace existing file "+base(old.name)+"?")){inp.value="";return}
+up={f:f,id:uuid(),off:0};
+msg("Uploading "+f.name+"...");render();chunk()};
+render();connect();
+setInterval(function(){if(ws&&ws.readyState==1)send(0)},30000);
+</script></body></html>

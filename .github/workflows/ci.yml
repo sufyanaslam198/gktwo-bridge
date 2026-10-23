@@ -1,0 +1,49 @@
+# Host tests and the ARM build on every push to main and every pull request.
+# The firmware image build, VERIFY and E2E need the stock firmware, so they stay a local check.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the gktwo-fw image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: fw
+          tags: gktwo-fw
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: gkhook and gksdcp host tests
+        run: >
+          docker run --rm -v "$PWD:/src" -w /src gktwo-fw bash -c
+          'make -C gkhook host test && make -C gksdcp host test
+          && python3 -m pytest -q -p no:cacheprovider tests/gksdcp'
+
+      - name: Page script tests
+        run: >
+          docker run --rm -v "$PWD:/src:ro" -w /src node:20-bookworm-slim bash -c
+          'apt-get -qq update >/dev/null && apt-get -qq install -y python3 python3-pytest >/dev/null
+          && cp -r /src /tmp/w && cd /tmp/w && python3 -m pytest -q -p no:cacheprovider tests/gksdcp/test_page_js.py'
+
+      - name: ARM build, glibc check and the gktwo-bridge image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          tags: gktwo-bridge:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,0 +1,39 @@
+# Private keys and passwords (secrets/root-password, SSH and Dropbear host keys)
+secrets/*
+!secrets/README.md
+!secrets/*.example
+
+# Stock firmware from the vendor: not ours to redistribute
+ChituUpgrade*
+*.bin
+
+# Firmware toolkit, cloned by the build
+UltraFirmwareToolkit/
+
+# Build outputs and downloaded sources
+out/
+gkhook/build/
+gksdcp/build/
+gksdcp/build-noweb/
+deps/*/src/
+
+# Local git history backups
+archive/
+*.bundle
+
+# Test and tool caches
+__pycache__/
+.pytest_cache/
+node_modules/
+
+# Local planning notes
+.superpowers/
+
+# Editor and OS files
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini

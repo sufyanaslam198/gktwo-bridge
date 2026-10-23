@@ -1,0 +1,64 @@
+#!/bin/sh
+# gksdcp: SDCP v3.0.0 server (UDP 3000, WebSocket and upload on 3030) and the web page (port 80).
+# Does not daemonize itself; run in the background here.
+# /media/emmc is mounted later by the stock app, so gksdcp must cope with it being absent at start
+# (and refuses to store uploads while /media is still the stock tmpfs).
+GK=/customer/gk
+BIN="$GK/bin/gksdcp"
+PIDFILE=/tmp/gksdcp.pid
+LOG=/tmp/gksdcp.log
+
+# 0 if the pidfile names a live process that really is gksdcp (guards against a reused PID);
+# sets $pid as a side effect.
+alive() {
+    [ -f "$PIDFILE" ] && pid=$(cat "$PIDFILE" 2>/dev/null) && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || return 1
+    case "$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)" in
+        *gksdcp*) return 0 ;;
+    esac
+    return 1
+}
+
+start() {
+    printf "Starting gksdcp service: "
+    if alive; then
+        echo "already running"
+        return 0
+    fi
+    mkdir -p "$GK/var"
+    # low priority; first in line for the OOM killer so the printer app survives a RAM squeeze
+    nice -n 10 "$BIN" -d /media/emmc -s /tmp/gkhook.sock -v "$GK/var" >>"$LOG" 2>&1 &
+    echo $! > "$PIDFILE"
+    echo 1000 > "/proc/$!/oom_score_adj" 2>/dev/null
+    sleep 1
+    if alive; then echo "OK"; else rm -f "$PIDFILE"; echo "FAIL"; fi
+}
+
+stop() {
+    printf "Shutting down gksdcp service: "
+    if ! alive; then
+        rm -f "$PIDFILE"
+        echo "not running"
+        return 0
+    fi
+    kill "$pid" 2>/dev/null
+    # wait up to ~3 s for the listening socket to be released before anyone restarts us
+    n=0
+    while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 15 ]; do
+        usleep 200000 2>/dev/null || sleep 1
+        n=$((n + 1))
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        kill -9 "$pid" 2>/dev/null
+        sleep 1
+    fi
+    rm -f "$PIDFILE"
+    if kill -0 "$pid" 2>/dev/null; then echo "FAIL"; else echo "OK"; fi
+}
+
+case "$1" in
+  start) start ;;
+  stop) stop ;;
+  restart) stop; start ;;
+  *) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+esac
+exit 0

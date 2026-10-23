@@ -1,0 +1,99 @@
+# A tag v<VERSION> publishes the release: the gktwo-bridge image to GHCR, the ARM add-ons
+# archive and a GitHub release with the CHANGELOG.md section as the notes.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  IMAGE: ghcr.io/sufyanaslam198/gktwo-bridge
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check the tag against VERSION
+        run: |
+          v=$(cat VERSION)
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::VERSION '$v' is not a semantic version"; exit 1; }
+          [ "$GITHUB_REF_NAME" = "v$v" ] || { echo "::error::tag $GITHUB_REF_NAME does not match VERSION $v"; exit 1; }
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Release notes from CHANGELOG.md
+        run: |
+          awk -v h="## [$VERSION]" 'index($0, h) == 1 {f = 1; next} f && /^(## )?\[/ {exit} f' CHANGELOG.md > notes.md
+          grep -q '[^[:space:]]' notes.md || { echo "::error::CHANGELOG.md has no section for $VERSION"; exit 1; }
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the gktwo-fw image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: fw
+          tags: gktwo-fw
+          load: true
+          cache-from: type=gha
+
+      - name: gkhook and gksdcp host tests
+        run: >
+          docker run --rm -v "$PWD:/src" -w /src gktwo-fw bash -c
+          'make -C gkhook host test && make -C gksdcp host test
+          && python3 -m pytest -q -p no:cacheprovider tests/gksdcp'
+
+      - name: ARM add-ons archive
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: addons-out
+          outputs: type=local,dest=dist
+          cache-from: type=gha
+
+      - name: Pack the add-ons
+        run: |
+          d=gktwo-bridge-$VERSION-armhf
+          mkdir "$d" && cp -r dist/bin dist/licenses "$d/"
+          (cd "$d" && sha256sum bin/* > SHA256SUMS)
+          tar -czf "$d.tar.gz" "$d"
+          sha256sum "$d.tar.gz" > "$d.tar.gz.sha256"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          # latest only for a release without a pre-release suffix (metadata-action default)
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Push the gktwo-bridge image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          cache-from: type=gha
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=; [[ "$VERSION" == *-* ]] && pre=--prerelease
+          gh release create "$GITHUB_REF_NAME" $pre --verify-tag --title "GKtwo Bridge $VERSION" --notes-file notes.md \
+            "gktwo-bridge-$VERSION-armhf.tar.gz" "gktwo-bridge-$VERSION-armhf.tar.gz.sha256"

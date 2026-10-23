@@ -1,0 +1,43 @@
+#!/bin/sh
+# Dropbear SSH (port 22). Host keys are baked into the image; generated here only if missing.
+GK=/customer/gk
+DB="$GK/bin/dropbearmulti"
+KEYDIR="$GK/dropbear"
+PIDFILE=/tmp/dropbear.pid
+
+start() {
+    printf "Starting dropbear service: "
+    if [ ! -d "$KEYDIR" ]; then
+        mkdir -p "$KEYDIR" && chmod 700 "$KEYDIR"
+    fi
+    args=""
+    for t in rsa ecdsa ed25519; do
+        k="$KEYDIR/dropbear_${t}_host_key"
+        if [ ! -s "$k" ]; then
+            rm -f "$k"
+            "$DB" dropbearkey -t "$t" -f "$k" >/dev/null 2>&1 && chmod 600 "$k"
+        fi
+        [ -s "$k" ] && args="$args -r $k"
+    done
+    # shellcheck disable=SC2086
+    "$DB" dropbear $args -p 22 -P "$PIDFILE"
+    [ $? = 0 ] && echo "OK" || echo "FAIL"
+}
+
+stop() {
+    printf "Shutting down dropbear service: "
+    if [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null; then
+        rm -f "$PIDFILE"
+        echo "OK"
+    else
+        echo "FAIL"
+    fi
+}
+
+case "$1" in
+  start) start ;;
+  stop) stop ;;
+  restart) stop; start ;;
+  *) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+esac
+exit 0

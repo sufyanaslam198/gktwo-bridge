@@ -1,0 +1,19 @@
+# Allowlist: the build context holds only these paths. Never secrets/ (except the example),
+# ChituUpgrade.bin, out/ or local notes.
+*
+!VERSION
+!LICENSE
+!deps/dropbear/build.sh
+!fw/
+!gkhook/
+!gksdcp/
+!overlay/
+!tests/
+!tools/
+!secrets/root-password.example
+gkhook/build/
+gksdcp/build/
+gksdcp/build-noweb/
+**/__pycache__/
+**/.pytest_cache/
+**/node_modules/

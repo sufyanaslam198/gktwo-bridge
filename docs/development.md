@@ -388,7 +388,7 @@ The image `gktwo-fw` has no node, so the tests in `test_page_js.py` skip there.
 `tests/gksdcp/test_page_js.py` runs the web page script under node with a fake DOM and a fake WebSocket. Run it in a node container. On Windows with Git Bash:
 
 ```
-MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W):/src:ro" -w /src node:20-bookworm-slim bash -c 'apt-get -qq update >/dev/null && apt-get -qq install -y python3 python3-pytest >/dev/null && cp -r /src /tmp/w && cd /tmp/w && python3 -m pytest -q -p no:cacheprovider tests/gksdcp/test_page_js.py'
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W):/src:ro" -w /src node:24-bookworm-slim bash -c 'apt-get -qq update >/dev/null && apt-get -qq install -y python3 python3-pytest >/dev/null && cp -r /src /tmp/w && cd /tmp/w && python3 -m pytest -q -p no:cacheprovider tests/gksdcp/test_page_js.py'
 ```
 
 On Linux, replace `$(pwd -W)` with `$(pwd)` and omit `MSYS_NO_PATHCONV=1`.

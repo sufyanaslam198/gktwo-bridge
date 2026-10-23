@@ -14,12 +14,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: Build the gktwo-fw image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: fw
@@ -36,12 +36,12 @@ jobs:
 
       - name: Page script tests
         run: >
-          docker run --rm -v "$PWD:/src:ro" -w /src node:20-bookworm-slim bash -c
+          docker run --rm -v "$PWD:/src:ro" -w /src node:24-bookworm-slim bash -c
           'apt-get -qq update >/dev/null && apt-get -qq install -y python3 python3-pytest >/dev/null
           && cp -r /src /tmp/w && cd /tmp/w && python3 -m pytest -q -p no:cacheprovider tests/gksdcp/test_page_js.py'
 
       - name: ARM build, glibc check and the gktwo-bridge image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           tags: gktwo-bridge:ci

@@ -15,10 +15,10 @@ XYZ_SIZE ?= 228.1x128.3x245
 DEFS    = -DWEBUI=$(WEBUI) -DMACHINE_NAME='"$(MACHINE_NAME)"' -DBRAND_NAME='"$(BRAND_NAME)"' -DFW_VERSION='"$(FW_VERSION)"' -DBRIDGE_VERSION='"$(BRIDGE_VERSION)"' -DXYZ_SIZE='"$(XYZ_SIZE)"'
 WARN    = -I$(BUILD) -std=c11 -D_GNU_SOURCE -Wall -Wextra -Werror -pthread $(DEFS)
 ARMOPT  = -march=armv7-a -mfpu=neon -mfloat-abi=hard -O2
-SRC     = $(wildcard src/*.c)
+SRC     = $(sort $(wildcard src/*.c))
 LIBSRC  = $(filter-out src/main.c,$(SRC))
-HDR     = $(wildcard src/*.h) $(if $(filter 1,$(WEBUI)),$(BUILD)/index_html.h) $(VERSION_FILE)
-TESTS   = $(patsubst tests/%.c,$(BUILD)/%,$(wildcard tests/test_*.c))
+HDR     = $(sort $(wildcard src/*.h)) $(if $(filter 1,$(WEBUI)),$(BUILD)/index_html.h) $(VERSION_FILE)
+TESTS   = $(patsubst tests/%.c,$(BUILD)/%,$(sort $(wildcard tests/test_*.c)))
 
 .PHONY: host arm test clean
 host: $(BUILD)/gksdcp-host $(TESTS)

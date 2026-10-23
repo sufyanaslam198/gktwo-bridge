@@ -5,8 +5,8 @@ ARMSTRIP ?= arm-linux-gnueabihf-strip
 WARN    = -std=c11 -D_GNU_SOURCE -Wall -Wextra -Werror
 SOFLAGS = -fPIC -shared -fvisibility=hidden -pthread
 ARMOPT  = -march=armv7-a -mfpu=neon -mfloat-abi=hard -O2
-SRC     = $(wildcard src/*.c)
-HDR     = $(wildcard src/*.h)
+SRC     = $(sort $(wildcard src/*.c))
+HDR     = $(sort $(wildcard src/*.h))
 
 .PHONY: host arm test clean
 host: build/libgkhook_host.so build/test_load build/test_fingerprint build/test_proto build/test_queue build/test_server build/test_validate build/test_tick build/test_zjog

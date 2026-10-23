@@ -5,6 +5,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-23
+
+### Fixed
+
+- The ARM programs are now reproducible: gksdcp and gkhook link their source files in sorted order, so the image build and `tools/build-all.sh` make byte-identical files. Before, the link order depended on the file system, and the two builds gave different `libgkhook.so` and `gksdcp` files from the same source.
+
+### Changed
+
+- Workflows use `actions/checkout@v7`, `docker/setup-buildx-action@v4`, `docker/build-push-action@v7`, `docker/login-action@v4` and `docker/metadata-action@v6` (Node 24). The page script tests run on Node 24.
+
 ## [0.1.0] - 2026-10-23
 
 The first release. Supports the Uniformation GKtwo with stock firmware V1.3.3 only.
@@ -19,5 +29,6 @@ The first release. Supports the Uniformation GKtwo with stock firmware V1.3.3 on
 - The `gktwo-bridge` image on GHCR: one `docker run` command builds, verifies and tests an image from a folder with the stock firmware.
 - A root password and SSH host keys for each build, kept in `secrets/`.
 
-[Unreleased]: https://github.com/sufyanaslam198/gktwo-bridge/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sufyanaslam198/gktwo-bridge/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/sufyanaslam198/gktwo-bridge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/sufyanaslam198/gktwo-bridge/releases/tag/v0.1.0

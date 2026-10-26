@@ -5,6 +5,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-26
+
 ### Fixed
 
 - A start now closes a finished print that is still on the touchscreen. Before, gkhook refused the start with `dismiss the finished print on the printer first` until the user closed the print-complete dialog on the touchscreen. A print that ended with an error must still be closed on the touchscreen.
@@ -33,6 +35,7 @@ The first release. Supports the Uniformation GKtwo with stock firmware V1.3.3 on
 - The `gktwo-bridge` image on GHCR: one `docker run` command builds, verifies and tests an image from a folder with the stock firmware.
 - A root password and SSH host keys for each build, kept in `secrets/`.
 
-[Unreleased]: https://github.com/sufyanaslam198/gktwo-bridge/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/sufyanaslam198/gktwo-bridge/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/sufyanaslam198/gktwo-bridge/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/sufyanaslam198/gktwo-bridge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/sufyanaslam198/gktwo-bridge/releases/tag/v0.1.0

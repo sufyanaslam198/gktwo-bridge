@@ -165,7 +165,9 @@ out=$(python3 /tmp/e2e_sdcp.py ws0 2>&1)
 echo "$out"
 if echo "$out" | grep -q '"Cmd": *0' && echo "$out" | grep -q '"Ack": *0'; then pass gksdcp_websocket_cmd0; else fail gksdcp_websocket_cmd0 "$out"; fi
 if [ "${WEBUI:-1}" = 1 ]; then
-  if curl -s --max-time 5 http://127.0.0.1:80/ | grep -qi '<html'; then pass gksdcp_page; else fail gksdcp_page; fi
+  # Capture first: with pipefail, grep -q exiting early makes curl fail (exit 23) on a large page.
+  page=$(curl -s --max-time 5 http://127.0.0.1:80/)
+  if grep -qi '<html' <<<"$page"; then pass gksdcp_page; else fail gksdcp_page; fi
 else
   if curl -s --max-time 3 -o /dev/null http://127.0.0.1:80/; then fail gksdcp_no_page "port 80 answers with WEBUI=0"; else pass gksdcp_no_page; fi
 fi

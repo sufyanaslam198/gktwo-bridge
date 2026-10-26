@@ -36,8 +36,10 @@ __attribute__((visibility("hidden"))) int64_t (*gk_tick_clock_ms)(void);
 
 static int stopping;        // we sent printer_stop; send the user back to the main window
 static int stop_sent;       // we sent printer_stop during this start (message accuracy)
-static int req;             // 0 none, 1 window 16 requested, 2 in window 16 waiting for printing
+static int req;             // 0 none, 1 window 16 requested, 2 in window 16 waiting for printing,
+                            // 3 closing a finished print first (held runs once it is gone)
 static int64_t req_t0;
+static struct gk_cmd held;  // req 3: the start to run after the finished print is closed
 static int seen_flight;     // a start is in flight and has no request of its own yet
 static uint32_t seen_gen;
 static int64_t flight_t0;
@@ -59,6 +61,7 @@ static int64_t now_ms(void) {
 void gk_tick_reset(void) {
   stopping = stop_sent = req = seen_flight = seen_done = was_printing = published_once = 0;
   seen_gen = 0;
+  memset(&held, 0, sizeof held);
   dirty = 1;
   last_pub = req_t0 = flight_t0 = done_t0 = 0;
   last_state_logged = -2;
@@ -181,6 +184,24 @@ static void cancel_start(const struct view* v, int64_t now, uint32_t gen) {
   seen_flight = 0;
 }
 
+// The open dialog, by the chain app_msgbox_close_avtive_msgbox (0x1b1a0) follows: window
+// copy +8 -> widget list -> widget 0 +0x2c -> window copy +0x10 -> entry, callback at +4.
+// GK_MSGBOX_ACTIVE is stale while no dialog is open, so it is only read while busy.
+enum { DLG_NONE, DLG_QUEUED, DLG_COMPLETE, DLG_OTHER };
+static int open_dialog(void) {
+  if (!gk_rd8(GK_MSGBOX_BUSY)) {
+    // app_msgbox_run shows a queued dialog right after this tick: wait for it.
+    uint32_t q = gk_rd32(GK_MSGBOX_QUEUE);
+    return q && gk_rd32(q + 12) != gk_rd32(q + 16) ? DLG_QUEUED : DLG_NONE;
+  }
+  uint32_t a = gk_rd32(GK_MSGBOX_ACTIVE);
+  if (a) a = gk_rd32(a + 8);
+  if (a) a = gk_rd32(a);
+  if (a) a = gk_rd32(a + 0x2c);
+  if (a) a = gk_rd32(a + 0x10);
+  return a && gk_rd32(a + 4) == GK_MSGBOX_PRINT_COMPLETE ? DLG_COMPLETE : DLG_OTHER;
+}
+
 static const char* basename_of(const char* p) {
   const char* s = strrchr(p, '/');
   return s ? s + 1 : p;
@@ -189,6 +210,14 @@ static const char* basename_of(const char* p) {
 static void cmd_start(const struct gk_cmd* c, struct view* v, int64_t now) {
   if (!gkq_start_valid(c->gen)) {  // stale: expired, or from an older start
     gk_log("gkhook: dropped stale start");
+    return;
+  }
+  if (!req && v->state == S_COMPLETE && v->next == v->cur) {
+    // A finished print is still on screen: close it first (step_close), then start.
+    held = *c;
+    req = 3;
+    req_t0 = now;
+    dirty = 1;
     return;
   }
   if (req || (v->cur != WIN_MAIN && v->cur != WIN_EXPLORER) || v->p || v->next != v->cur ||
@@ -223,13 +252,40 @@ static void cmd_start(const struct gk_cmd* c, struct view* v, int64_t now) {
   gk_log("gkhook: start requested");
 }
 
+// req 3: do what the print-complete dialog's tick button does (0x1cd90: window 3, close the
+// dialog), then run the held start once the print window is gone. Closing the dialog before
+// the switch is the order app_top_callback uses (0x1fb48); window 16's destroy handler does
+// not close an open dialog.
+static void step_close(struct view* v, int64_t now) {
+  if (!gkq_start_valid(held.gen)) { req = 0; return; }  // ended meanwhile (timeout)
+  if (v->cur != WIN_PRINT) {
+    if (v->next != v->cur) return;
+    req = 0;
+    cmd_start(&held, v, now);
+    return;
+  }
+  if (now - req_t0 > WINDOW_WAIT_MS) { end_start(v, now, "start failed"); return; }
+  if (v->next != v->cur) return;  // window 3 already requested
+  int d = open_dialog();
+  if (d == DLG_QUEUED) return;
+  if (d == DLG_OTHER) { end_start(v, now, "dismiss the finished print on the printer first"); return; }
+  if (d == DLG_COMPLETE) gk_msgbox_close_active();
+  gk_ui_set_window_index(WIN_MAIN, NULL);
+  v->next = WIN_MAIN;
+  dirty = 1;
+  gk_log("gkhook: finished print closed for a new start");
+}
+
 // pause / resume / stop; exactly one result per command.
 static void cmd_ctl(const struct gk_cmd* c, struct view* v, int64_t now) {
   int s = v->state;
   const char* err = NULL;
   uint32_t fg;
   int fdone;
-  if (s < 0 && c->kind == CMD_STOP && gkq_flight(&fg, &fdone)) {
+  if (req == 3 && c->kind == CMD_STOP) {
+    // Closing the finished print: drop the start. A requested window 3 still happens.
+    cancel_start(v, now, held.gen);
+  } else if (s < 0 && c->kind == CMD_STOP && gkq_flight(&fg, &fdone)) {
     // A start is in flight and chitu has no print window with a printer yet.
     if (req == 1 && v->next != v->cur) {
       // Window 16 requested but not reached. ui_loop only switches when next != current, so
@@ -305,7 +361,9 @@ static void run(void) {
     dirty = 1;
   }
 
-  if (req) {
+  if (req == 3) {
+    step_close(&v, now);
+  } else if (req) {
     if (v.state >= 0) req = 2;
     if (req == 2 && is_printing(v.state)) { publish(&v, now); gkq_end_start(NULL); req = 0; }
     else if (req == 2 && v.state < 0)  // window 16 was reached, then closed

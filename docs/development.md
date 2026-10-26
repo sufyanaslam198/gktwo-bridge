@@ -126,11 +126,11 @@ This rule is the most important rule of the code base.
 
 A start takes several steps on several threads. A generation number stops a late step from changing a newer start.
 
-1. A connection thread receives `start`. It refuses the request in three cases. The state is not `idle`, `complete` or `error`. A finished print is still on screen. Z moves. It runs the path and cheap file checks.
+1. A connection thread receives `start`. It refuses the request in three cases. The state is not `idle`, `complete` or `error`. A print window is still on screen and the state is not `complete`. Z moves. It runs the path and cheap file checks.
 2. `gkq_begin_start` returns a new generation (greater than 0). It returns 0 if a start is already in flight. The state is now `starting`.
 3. The connection thread spawns a detached checker thread and answers `{"ok":true}`.
 4. The checker runs the full validation (`print_file_check`) and reads the file magic. On failure it ends the start with a message. On success it posts a `CMD_START` command that carries the generation and the magic.
-5. The tick takes `CMD_START`. It drops the command if `gkq_start_valid` says the generation is no longer in flight. It checks the window, the printer, the message box, the Z axis and the magic again. Then it fills chitu's static item buffer and calls `ui_set_window_index(16, item)`.
+5. The tick takes `CMD_START`. It drops the command if `gkq_start_valid` says the generation is no longer in flight. If the print window shows a complete print, the tick holds the command. It closes the print-complete dialog (`app_msgbox_close_avtive_msgbox`) and calls `ui_set_window_index(3, 0)`, as the tick button of the dialog does. It runs the held command when the print window is gone, or ends the start with `start failed` after 5 s. It checks the window, the printer, the message box, the Z axis and the magic again. Then it fills chitu's static item buffer and calls `ui_set_window_index(16, item)`.
 6. The tick waits until the printer state shows a print. It then ends the start with success. If the window does not open in 5 s, the start ends with `start failed`.
 7. Timeouts: 10 s after the checker finishes without a command (`start failed`) and 600 s from the start (`file check timed out`).
 

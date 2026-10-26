@@ -278,16 +278,18 @@ int main(void) {
   // ---- start ----
   publish("printing", 1);
   CHECK(has("{\"cmd\":\"start\",\"path\":\"" DIR "/a.ctb\"}\n", "{\"ok\":false,\"error\":\"printer busy\"}\n"));
-  // F2: a finished/errored print window still open: refuse up front, before any validation
-  for (int i = 0; i < 2; i++) {
-    pwo = 1;
-    publish(i ? "error" : "complete", 1);
-    CHECK(has("{\"cmd\":\"start\",\"path\":\"" DIR "/a.ctb\"}\n", "{\"ok\":false,\"error\":\"dismiss the finished print on the printer first\"}\n"));
-    CHECK(has("{\"cmd\":\"start\",\"path\":\"/etc/passwd\"}\n", "dismiss the finished print on the printer first"));
-    CHECK(!gkq_start_in_flight() && starts_seen == 0);
-    CHECK(has("{\"cmd\":\"status\"}\n", i ? "\"state\":\"error\"" : "\"state\":\"complete\""));
-    { char rr[2100]; rpc("{\"cmd\":\"status\"}\n", rr, sizeof rr); CHECK(!strstr(rr, "print_window")); }  // not serialized
-  }
+  // F2: an errored print window still open: refuse up front, before any validation
+  pwo = 1;
+  publish("error", 1);
+  CHECK(has("{\"cmd\":\"start\",\"path\":\"" DIR "/a.ctb\"}\n", "{\"ok\":false,\"error\":\"dismiss the finished print on the printer first\"}\n"));
+  CHECK(has("{\"cmd\":\"start\",\"path\":\"/etc/passwd\"}\n", "dismiss the finished print on the printer first"));
+  CHECK(!gkq_start_in_flight() && starts_seen == 0);
+  CHECK(has("{\"cmd\":\"status\"}\n", "\"state\":\"error\""));
+  { char rr[2100]; rpc("{\"cmd\":\"status\"}\n", rr, sizeof rr); CHECK(!strstr(rr, "print_window")); }  // not serialized
+  // a completed print window still open: the tick closes it, so the start goes on to the checks
+  publish("complete", 1);
+  CHECK(has("{\"cmd\":\"start\",\"path\":\"" DIR "/missing.ctb\"}\n", "file not found"));
+  CHECK(has("{\"cmd\":\"start\",\"path\":\"/etc/passwd\"}\n", "file is not in the files folder"));
   pwo = 0;
   publish("complete", 1);   // dismissed: complete without the window is startable
   CHECK(has("{\"cmd\":\"start\",\"path\":\"" DIR "/missing.ctb\"}\n", "file not found"));

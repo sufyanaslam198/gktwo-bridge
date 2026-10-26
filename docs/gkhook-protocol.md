@@ -131,7 +131,7 @@ The reply means that the server accepted the start. It does not mean that the pr
 Preconditions:
 
 - The state is `idle`, `complete` or `error`.
-- The print window is not open (see below).
+- The print window is not open, or it shows a complete print (see Finished print dialog).
 - Z does not move.
 
 The server checks in this order and returns the first error:
@@ -140,7 +140,7 @@ The server checks in this order and returns the first error:
 |---|---|
 | `hook starting` | No status snapshot exists yet. |
 | `printer busy` | The state is `starting`, `printing` or `paused`. Also when a start is already in progress. Also when the state is `idle` but a print window is open. |
-| `dismiss the finished print on the printer first` | The state is `complete` or `error` and the print dialog is still open on the touchscreen. |
+| `dismiss the finished print on the printer first` | The state is `error` and the print window is still open on the touchscreen. |
 | `Z is moving` | The status shows `"moving":true`. |
 | `file is not in the files folder` | `path` does not start with the files folder and `/`. |
 | `bad file path` | The file name is empty, has a `/`, or is `.` or `..`. A name that only contains `..` inside (for example `a..b.ctb`) is valid. |
@@ -331,7 +331,8 @@ The numeric fields are `null` until a print runs. The gkhook snapshot has a new 
 | `bad file path` | The path is 1024 bytes or longer. |
 | `cannot start file check` | gkhook cannot start the file check. |
 | `file check timed out` | The file check did not end within 600 seconds. The heat dialog has no time limit. |
-| `start failed` | The print window did not open within 5 seconds. Or the print ended in `complete` or `error` before it printed. Or the checker finished and the start did not arrive within 10 seconds. |
+| `dismiss the finished print on the printer first` | A dialog of another type is open over the complete print. |
+| `start failed` | The print window did not open within 5 seconds. Or the complete print did not close within 5 seconds. Or the print ended in `complete` or `error` before it printed. Or the checker finished and the start did not arrive within 10 seconds. |
 | `print stopped on the printer` | The print window closed after it opened, and gkhook did not send a stop (for example a stop on the touchscreen). |
 | `start cancelled` | A client sent `stop` during the start. |
 
@@ -341,7 +342,7 @@ The numeric fields are `null` until a print runs. The gkhook snapshot has a new 
 2. On success gkhook records the start and replies `{"ok":true}`. The next status shows `"state":"starting"`.
 3. A separate thread runs the full file check. The check can take minutes for a large file.
 4. If the check fails, the start ends. The state returns to chitu state. The status carries the reason in `message`.
-5. If the check passes, the thread queues the start for the UI tick. The tick checks the printer again, then asks chitu to open the print window.
+5. If the check passes, the thread queues the start for the UI tick. If the print window shows a complete print, the tick first closes it (see Finished print dialog). The tick checks the printer again, then asks chitu to open the print window.
 6. When chitu reports a state of print, the start is complete. The state is `printing`. The tick clears `message`.
 
 gkhook refuses a second `start` with `printer busy` until the first start ends.
@@ -358,7 +359,13 @@ A client can send `stop` while the state is `starting`.
 
 ### Finished print dialog
 
-A print in state `complete` or `error` leaves its dialog open on the touchscreen. A new start cannot proceed until the user closes the dialog there. While the dialog is open, `start` returns `dismiss the finished print on the printer first`.
+A complete print leaves the print window and the print-complete dialog open on the touchscreen. When the tick takes a start, it closes them as the tick button of the dialog does: it closes the dialog and opens the main window. When chitu has closed the print window, the tick starts the print. If the print window does not close within 5 seconds, the start ends with `start failed`.
+
+The tick closes only the print-complete dialog. If a dialog of another type is open over the complete print, the start ends with `dismiss the finished print on the printer first`.
+
+A print in state `error` leaves its dialog open until the user closes it on the touchscreen, so that the user sees the error. While the print window is open, `start` returns `dismiss the finished print on the printer first`.
+
+A `stop` while the tick closes a complete print cancels the start. The print window still closes.
 
 ## Version gate
 

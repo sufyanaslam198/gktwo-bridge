@@ -5,6 +5,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ## [Unreleased]
 
+### Fixed
+
+- A start now closes a finished print that is still on the touchscreen. Before, gkhook refused the start with `dismiss the finished print on the printer first` until the user closed the print-complete dialog on the touchscreen. A print that ended with an error must still be closed on the touchscreen.
+
 ## [0.1.1] - 2026-10-23
 
 ### Fixed

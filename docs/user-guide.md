@@ -151,7 +151,7 @@ The message line shows `Deleted <name>`, or `Could not delete <name>`.
 **WARNING: Make sure that the vat and the build plate are ready before you start. The build plate moves down when the print starts.**
 
 1. Make sure that the state is `Idle`, `Complete` or `Stopped`.
-2. If the state is `Complete` or `Stopped`, dismiss the finished print on the touchscreen first.
+2. If the touchscreen shows a print error, close it there first. A finished print closes on the touchscreen when the new print starts.
 3. Click **Print** next to the file.
 4. Make sure that the state changes to `Starting`, and then to `Printing`.
 
@@ -193,7 +193,7 @@ After a command, the message line shows `<Action> sent` when the printer accepts
 | Message | Cause | Action |
 |---|---|---|
 | `printer busy` | The state does not allow the action. | Wait until the state is `Idle`, `Complete` or `Stopped`. |
-| `dismiss the finished print on the printer first` | A finished or failed print is open on the touchscreen. | Close it on the touchscreen. |
+| `dismiss the finished print on the printer first` | A failed print is open on the touchscreen, or a dialog is open over a finished print. | Close it on the touchscreen. |
 | `Z is moving` | The build plate moves. | Wait, or click **Stop** in the Move Z panel. |
 | `not printing` | You use pause or stop when no print runs. | None. |
 | `printer is homing - pause when printing starts` | You use pause while the printer homes. | Wait until the state is `Printing`, then pause. |

@@ -45,10 +45,16 @@ void* gk_abi_resolve(uintptr_t addr);
 #define GK_UI_UPDATE_CB              0x001078f8UL
 #define GK_APP_UPDATE                0x00013d3cUL  // original callback (nm _Z10app_updatev)
 
+// Dialogs (nm). UI-tick only. The print-complete callback is compared, never called.
+#define GK_MSGBOX_CLOSE_ACTIVE       0x0001b1a0UL  // app_msgbox_close_avtive_msgbox()
+#define GK_MSGBOX_PRINT_COMPLETE     0x0001cc94UL  // app_msgbox_print_complete (dialog callback)
+
 // Globals (findings 4, 6.1; msgbox_is_busy/machine_param/static item in nm).
 #define GK_PRINTER_PTR               0x00101754UL  // printer_t*, NULL when no print window
 #define GK_PRINT_CONTEXT_PATH        0x00101348UL  // print_context + 0x100
-#define GK_MSGBOX_BUSY               0x00101224UL
+#define GK_MSGBOX_QUEUE              0x0010121cUL  // msgbox_queue: queue* {buf, cap, size, write, read}
+#define GK_MSGBOX_ACTIVE             0x00101220UL  // msgbox_queue+4: window copy of the open dialog
+#define GK_MSGBOX_BUSY               0x00101224UL  // msgbox_queue+8: 1 while a dialog is open
 #define GK_MACHINE_PARAM             0x001094e8UL
 #define GK_STATIC_ITEM               0x00100c78UL  // stock print-file item buffer (0x50c)
 
@@ -92,6 +98,7 @@ static inline uint64_t gk_printer_get_total_print_tick(void* p) { GK_CHECK(); re
 static inline uint64_t gk_printer_get_print_tick(void* p) { GK_CHECK(); return ((uint64_t (*)(void*))GK_ADDR(GK_PRINTER_GET_PRINT_TICK))(p); }
 static inline void  gk_ui_set_window_index(int idx, void* param) { GK_CHECK(); ((void (*)(int, void*))GK_ADDR(GK_UI_SET_WINDOW_INDEX))(idx, param); }
 static inline void  gk_app_update(void) { ((void (*)(void))GK_ADDR(GK_APP_UPDATE))(); }
+static inline void  gk_msgbox_close_active(void) { GK_CHECK(); ((void (*)(void))GK_ADDR(GK_MSGBOX_CLOSE_ACTIVE))(); }
 
 // print_file_*. get_format: nonzero = known format (0x30554 returns the table index or 0).
 // open: handle or NULL (0x305d8). check: 0 = OK (see validate.c), close: frees the handle (0x3073c).

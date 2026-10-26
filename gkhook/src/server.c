@@ -136,7 +136,9 @@ static void do_start_locked(int fd, const struct gk_cmd* c) {
     reply_err(fd, "printer busy");
     return;
   }
-  if (st.print_window_open) {  // a finished/errored print is still on the printer's screen
+  // A print window still on the printer's screen. complete: the tick closes it before the
+  // start. error: only the user closes it, on the touchscreen, so the fault is seen there.
+  if (st.print_window_open && strcmp(st.state, "complete")) {
     reply_err(fd, strcmp(st.state, "idle") ? "dismiss the finished print on the printer first" : "printer busy");
     return;
   }

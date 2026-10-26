@@ -167,6 +167,92 @@ static void test_tick_start_then_z_same_drain(void) {
   gk_z_enabled = 0;
 }
 
+// A finished print still on screen: the start first closes it as the dialog's tick button does
+// (close the dialog, window 3), then starts as usual. Other dialogs and an error are left alone.
+static void test_tick_start_dismisses_finished_print(void) {
+  char err[64];
+  struct gk_status s;
+  // complete dialog open: closed, window 3, then window 16 once the print window is gone
+  reset(); enter_print(2); mock_dialog(GK_MSGBOX_PRINT_COMPLETE, 1); tick();
+  accept_start(path); tick();
+  CHECK(M.n_msgbox_close == 1 && M.n_setwin == 1 && M.win_idx[0] == 3 && M.win_param[0] == NULL);
+  CHECK(gkq_start_in_flight());
+  s = status(); CHECK(!strcmp(s.state, "starting") && !s.message[0]);
+  tick();
+  CHECK(M.n_setwin == 1);              // waits for the window switch
+  mock_loop();
+  CHECK(M.left_with_dialog == 0 && mock_printer() == NULL && mock_ui_current() == 3);
+  tick();
+  CHECK(M.n_setwin == 2 && M.win_idx[1] == 16 && M.win_param[1] == (void*)mock_mem(GK_STATIC_ITEM));
+  mock_loop(); M.state = 3; tick();
+  CHECK(!gkq_start_in_flight());
+  s = status(); CHECK(!strcmp(s.state, "printing") && !s.message[0]);
+  CHECK(M.n_msgbox_close == 1);
+
+  // dialog already closed on the touchscreen (window 16 still open): window 3 only
+  reset(); enter_print(2); tick();
+  accept_start(path); tick();
+  CHECK(M.n_msgbox_close == 0 && M.n_setwin == 1 && M.win_idx[0] == 3 && gkq_start_in_flight());
+  mock_loop(); tick();
+  CHECK(M.n_setwin == 2 && M.win_idx[1] == 16);
+
+  // dialog queued but not on screen yet: wait for app_msgbox_run to show it, then close it
+  reset(); enter_print(2); mock_dialog(GK_MSGBOX_PRINT_COMPLETE, 0);
+  accept_start(path); tick();
+  CHECK(M.n_msgbox_close == 0 && M.n_setwin == 0 && gkq_start_in_flight());
+  CHECK(*mock_mem(GK_MSGBOX_BUSY) == 1);   // shown by the chained app_update
+  tick();
+  CHECK(M.n_msgbox_close == 1 && M.n_setwin == 1 && M.win_idx[0] == 3);
+  mock_loop(); CHECK(M.left_with_dialog == 0);
+
+  // another dialog open over the finished print: refused, nothing touched
+  reset(); enter_print(2); mock_dialog(0x00015ae0u, 1);
+  accept_start(path); tick();
+  CHECK(M.n_msgbox_close == 0 && M.n_setwin == 0 && !gkq_start_in_flight());
+  s = status(); CHECK(!strcmp(s.message, "dismiss the finished print on the printer first"));
+
+  // error: never closed remotely
+  reset(); enter_print(9); mock_dialog(0x0001cda8u, 1);
+  accept_start(path); tick();
+  CHECK(M.n_msgbox_close == 0 && M.n_setwin == 0 && !gkq_start_in_flight());
+  // printer at state 0 in window 16 (heat dialog): untouched
+  reset(); enter_print(0); mock_dialog(0x0001c8b8u, 1);
+  accept_start(path); tick();
+  CHECK(M.n_msgbox_close == 0 && M.n_setwin == 0 && !gkq_start_in_flight());
+
+  // stop while waiting for the dialog: cancelled, nothing touched
+  reset(); enter_print(2); mock_dialog(GK_MSGBOX_PRINT_COMPLETE, 0);
+  accept_start(path); tick();
+  CHECK(ctl(CMD_STOP, err) == 1);
+  CHECK(!gkq_start_in_flight() && M.n_stop == 0 && M.n_msgbox_close == 0 && M.n_setwin == 0);
+  s = status(); CHECK(!strcmp(s.message, "start cancelled"));
+  // stop after the dismissal: the print window still closes, the print does not start
+  reset(); enter_print(2); mock_dialog(GK_MSGBOX_PRINT_COMPLETE, 1);
+  accept_start(path); tick();
+  CHECK(ctl(CMD_STOP, err) == 1);
+  CHECK(!gkq_start_in_flight() && M.n_stop == 0);
+  s = status(); CHECK(!strcmp(s.message, "start cancelled"));
+  mock_loop(); tick(); tick();
+  CHECK(M.n_setwin == 1 && mock_ui_current() == 3 && M.left_with_dialog == 0);
+
+  // the print window never closes: the start fails after the window wait
+  reset(); enter_print(2);
+  accept_start(path); tick();
+  CHECK(M.n_setwin == 1 && gkq_start_in_flight());
+  fake_now += 4000; tick();
+  CHECK(gkq_start_in_flight());
+  fake_now += 2000; tick();
+  CHECK(!gkq_start_in_flight() && M.n_setwin == 1);
+  s = status(); CHECK(!strcmp(s.message, "start failed"));
+
+  // a start whose generation ended meanwhile is dropped after the dismissal
+  reset(); enter_print(2);
+  accept_start(path); tick();
+  gkq_end_start("file check timed out");
+  mock_loop(); tick(); tick();
+  CHECK(M.n_setwin == 1 && !gkq_start_in_flight());
+}
+
 int main(void) {
   char err[64];
   struct gk_status s;
@@ -523,6 +609,7 @@ int main(void) {
   test_tick_routes_z_and_reports();
   test_tick_start_refused_while_z_moving();
   test_tick_start_then_z_same_drain();
+  test_tick_start_dismisses_finished_print();
 
   unlink(path);
   if (fails) { fprintf(stderr, "%d failure(s)\n", fails); return 1; }

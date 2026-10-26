@@ -58,9 +58,32 @@ void mock_axis_params(float travel, float speed) {
   *(float*)mock_mem(GK_Z_SPEED) = speed;
 }
 
+// Fake msgbox objects in fake memory, linked as chitu links them (0x1b1a0): queue
+// {buf, cap, size, write, read}; window copy +8 -> widget list -> widget 0 +0x2c -> window
+// copy +0x10 -> entry {flag, idx, cb +4, param +8}.
+#define Q_ADDR    0x10f000u
+#define WC_ADDR   0x10f040u
+#define LIST_ADDR 0x10f080u
+#define W0_ADDR   0x10f0c0u
+#define ENT_ADDR  0x10f100u
+static uint32_t* w32(uint32_t a) { return (uint32_t*)mock_mem(a); }
+
+void mock_dialog(uint32_t cb, int shown) {
+  *w32(GK_MSGBOX_QUEUE) = Q_ADDR;
+  *w32(Q_ADDR + 12) += 1;  // write count
+  *w32(GK_MSGBOX_ACTIVE) = WC_ADDR;
+  *w32(WC_ADDR + 8) = LIST_ADDR;
+  *w32(LIST_ADDR) = W0_ADDR;
+  *w32(W0_ADDR + 0x2c) = WC_ADDR;
+  *w32(WC_ADDR + 0x10) = ENT_ADDR;
+  *w32(ENT_ADDR + 4) = cb;
+  *mock_mem(GK_MSGBOX_BUSY) = shown ? 1 : 0;
+}
+
 void mock_loop(void) {
   uint32_t cur = mock_ui_current(), next = *(uint32_t*)mock_mem(GK_UI_NEXT);
   if (cur == next) return;
+  if (cur == 16 && *mock_mem(GK_MSGBOX_BUSY)) M.left_with_dialog++;  // window 16's destroy does not close it
   if (cur == 16) free_printer();
   *(uint32_t*)mock_mem(GK_UI_CURRENT) = next;
   if (next == 16) {
@@ -73,7 +96,8 @@ void mock_loop(void) {
 }
 
 int mock_calls_printer_or_ui(void) {
-  return M.n_pause + M.n_resume + M.n_stop + M.n_state + M.n_layer + M.n_info + M.n_ticks + M.n_setwin;
+  return M.n_pause + M.n_resume + M.n_stop + M.n_state + M.n_layer + M.n_info + M.n_ticks + M.n_setwin +
+         M.n_msgbox_close;
 }
 
 // ---- fake functions ----
@@ -103,7 +127,19 @@ static void f_axhalt(int a) { ax_rec(AX_HALT, a, 0, 0, 0); }
 static int f_axidle(int a) { (void)a; return M.ax_idle; }
 static int f_axishome(int a) { (void)a; return M.ax_homed; }
 static float f_axpos(int a) { (void)a; return M.ax_pos; }
-static void f_app(void) { M.n_app_update++; }
+// app_update = app_msgbox_run: shows the next queued dialog when none is open
+static void f_app(void) {
+  M.n_app_update++;
+  uint32_t q = *w32(GK_MSGBOX_QUEUE);
+  if (q && !*mock_mem(GK_MSGBOX_BUSY) && *w32(q + 12) != *w32(q + 16)) *mock_mem(GK_MSGBOX_BUSY) = 1;
+}
+static void f_msgbox_close(void) {
+  M.n_msgbox_close++;
+  uint32_t q = *w32(GK_MSGBOX_QUEUE);
+  if (!q || *w32(q + 12) == *w32(q + 16)) return;
+  *mock_mem(GK_MSGBOX_BUSY) = 0;
+  *w32(q + 16) += 1;  // read count
+}
 static int f_getfmt(const char* p) { (void)p; M.n_getfmt++; return M.fmt; }
 static void* f_open(const char* p) {
   (void)p;
@@ -137,6 +173,7 @@ void* gk_abi_resolve(uintptr_t a) {
     case GK_AXIS_IS_HOME: return (void*)f_axishome;
     case GK_AXIS_GET_POSITION: return (void*)f_axpos;
     case GK_APP_UPDATE: return (void*)f_app;
+    case GK_MSGBOX_CLOSE_ACTIVE: return (void*)f_msgbox_close;
     case GK_PRINT_FILE_GET_FORMAT: return (void*)f_getfmt;
     case GK_PRINT_FILE_OPEN: return (void*)f_open;
     case GK_PRINT_FILE_CHECK: return (void*)f_check;
